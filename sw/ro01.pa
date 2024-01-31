@@ -1,0 +1,197 @@
+/ SBC6120 ROMDISK HANDLER - RLA [3-JUL-03]
+
+/   Copyright (C) 2003 by R. Armstrong, Milpitas, California.
+/
+/   This program is free software; you can redistribute it and/or modify
+/ it under the terms of the GNU General Public License as published by
+/ the Free Software Foundation; either version 2 of the License, or
+/ (at your option) any later version.
+/
+/   This program is distributed in the hope that it will be useful, but
+/ WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+/ or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+/ for more details.
+/
+/   You should have received a copy of the GNU General Public License along
+/ with this program; if not, write to the Free Software Foundation, Inc.,
+/ 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+
+/   Define this symbol (the value is unimportant) to build a system handler,
+/ and leave it undefined to build a non-system handler.
+/SYS=1
+
+
+/ Other useful symbols...
+VERSION="A&77	/ version of this handler
+DEVTYP=44	/ OS/8 device type used by this handler
+PR0=6206	/ HM6120 panel request 0
+RDROM=21	/ function code to read the flash ROM
+
+
+*0	/ start of device header block for BUILD
+
+IFNDEF SYS <
+	-1
+	DEVICE RO01; DEVICE ROA0; DEVTYP^10+4000; UNIT0&177; ZBLOCK 2
+>
+
+IFDEF SYS <
+	-1
+	DEVICE RO01; DEVICE SYS;  DEVTYP^10+4000; UNIT0&177+2000; 0; 2500
+>
+
+
+/   How to boot OS/8 (there's lots of documentation on how to write a device
+/ handler, even a system handler, but I couldn't find a description of how
+/ to make a bootable device anywhere!):
+/
+/   The primary bootstrap for a device (the one which you have to toggle in
+/ with the switches!) normally loads cylinder 0, head 0, sector 0 (which is
+/ the equivalent to OS/8 logical block zero) into memory page zero field zero.
+/ The code loaded into page zero is then started in some device specific way -
+/ usually the primary bootstrap is overwritten by this data and the CPU just
+/ "ends up" there.
+/
+/   The first few words of block zero are called the secondary bootstrap, and
+/ that's what you'll see in this file a little later.  OS/8 BUILD writes the
+/ secondary bootstrap to the first part of block zero when it builds the system
+/ device.  The second half of block zero contains the system handler (i.e.
+/ what you're reading in this file!) plus some OS/8 resident code that BUILD
+/ wraps around it.  All of the second half of block zero needs to be loaded
+/ into page 7600, field 0 by the secondary bootstrap.
+/
+/  The remainder of the first half of block zero, the part after the secondary
+/ bootstrap, contains the OS/8 resident code for field 1.  This starts some
+/ where around offset 47 (I never could find out for sure) in the first half
+/ of block zero, and this code needs to be loaded into the corresponding
+/ locations of page 7600, field 1.  The remaining words in page 7600, field 1
+/ (i.e. those that correspond to locations used by the secondary bootstrap)
+/ OS/8 uses for tables and their initial values are unimportant.  It suffices
+/ to simply copy all of the first half of block zero to page 7600, field 1.
+/
+/   All this discussion presupposes a single page system handler, as we have
+/ here.  For a two page handler BUILD will put the second page in the first
+/ half of block 66 on the system device and I believe (although I can't
+/ guarantee it) that the second half of this block also contains an image
+/ of the OS/8 resident code at page 7600, field 1.  This would make it the
+/ same as, excepting the bootstrap part, the first half of block zero.  In
+/ the case of a two page handler, the secondary bootstrap is also responsible
+/ for loading the second handler page from block 66 into page 7600, field 2.
+/ OS/8 bootstrap code (secondary bootstrap).
+/
+/   Once everything has been loaded, the secondary bootstrap can simply do a
+/ "CDF CIF 0" and then jump to location 7600 to load the keyboard monitor.
+
+/   The primary bootstrap for the SBC6120 RAM disk is six words loaded in
+/ locations 0 thru 5:
+/
+/	0000/ 6206	PR0		/ execute a panel request
+/	0001/ 0001	 RAMRW		/  RAM disk I/O
+/	0002/ 0100	 0100		/  read one page into field zero
+/	0003/ 0000	 0000		/  location zero
+/	0004/ 0000	 0000		/ from page zero of the device
+/	0005/ 7402	HLT		/ should never get here
+/
+/   If all goes well, the HLT in location 5 is never executed - it gets 
+/ overwritten by the secondary bootstrap code before the ROM returns from
+/ the PR0 function.
+/
+/   Here's the secondary, OS/8 specific, bootstrap:
+IFDEF SYS <
+        BOOT-ENDBT	/ legnth of the boot code, for BUILD
+	RELOC	0
+/   The first five words of the secondary bootstrap overlay the primary boot
+/ and are never actually executed.  They should contain the word "BOOT" in
+/ ASCII text to tell the SBC6120 ROM boot sniffer that this is a bootable
+/ volume...
+BOOT,	"B; "O; "O; "T; 0
+	PR0		/ replaces the HLT instruction in the primary boot
+	 RAMRW		/  ...
+	 0100		/  read one page into field 0
+	 7600		/  page 7600
+	 0001		/  from the second half of block zero
+	SZL CLA		/ this shouldn't fail, but...
+	 HLT		/  just give up if it does
+	PR0		/ do a second read operation
+	 RAMRW		/  ...
+	 0110		/ this time read one page into field 1
+	 7600		/  page 7600
+	 0000		/ from the first half of block zero
+	SZL CLA		/ ...
+	 HLT		/ ...
+	CDF CIF 0	/ this is probably unnecessary
+	JMP I	.+1	/ go load the keyboard monitor
+	7600		/ ...
+ENDBT=.
+	RELOC
+>
+
+
+*200	/ end of header block for BUILD
+
+
+/   Note that the entry point offsets for a handler are not arbitrary - the
+/ OS/8 USER overlay requires that every file structured handler have a UNIQUE
+/ entry point.	This means, for example, that our entry points can't be at
+/ the same offset as those used by the RX01, RK8E, RL01, or any other file
+/ structured handler!
+/
+/   For a system handler, the entry point for unit 0 (or which ever one is to
+/ be SYS:) has to be at offset 7.  And also, for a system device, those first
+/ six words before offset 7 are off limits and we can't use them - BUILD fills
+/ them in with code to load the KBM.
+IFNDEF SYS <*211>
+IFDEF SYS <ZBLOCK 7>
+
+/ Primary entry point (for unit 0)...
+UNIT0,	VERSION			/ the convention is to put our version here
+	CLA			/ clear the AC
+	RDF			/ get the caller's data field
+	TAD	KCXF		/ and make a CXF instruction out of it
+	DCA	RETCXF		/ save that for when we return
+
+/ Do a standard control-C check before we get started...
+	TAD	K200		/ ignore the parity bit from the console
+	KRS			/ read the buffer, but don't clear the flag
+	TAD	KM203		/ is there a ^C in the buffer?
+	SNA CLA			/ ???
+	 KSF			/  yes - is the flag also set?
+	  JMP	 NOCTLC		/   nope - go start the I/O
+	CDF CIF 0		/ yes - return to the keyboard monitor
+	JMP I	K7600		/  immediately
+
+/ Use the caller's arguments to set up an argument list for PR0...
+NOCTLC, TAD I	UNIT0		/ get the caller's first argument word
+	ISZ	UNIT0		/ (and point to argument 2)
+	AND	K7770		/ save just the R/W, count and field bits
+	DCA	DSKFUN		/ save that in the argument list for PR0
+	TAD I	UNIT0		/ get the caller's buffer address
+	ISZ	UNIT0		/ (point to argument 3)
+	DCA	DSKBUF		/ save that for PR0
+	TAD I	UNIT0		/ get the caller's OS/8 block number
+	ISZ	UNIT0		/ (point to the error return)
+	CLL RAL			/ convert OS/8 blocks to pages
+	DCA	DSKPAG		/ and save that for the PR0 call
+
+/ Call the panel ROM to actually do all the work...
+	PR0			/ trap to panel memory
+	 RDROM			/ panel request function code - never changes
+DSKFUN,	 0			/ DISK I/O subfunction code
+DSKBUF,	 0			/ address of the caller's buffer
+DSKPAG,	 0			/ page number (not block number!) for I/O
+	SNL CLA			/ did the call succeed?
+	 ISZ	UNIT0		/ yes - give the successful return
+RETCXF, HLT			/ gets a CDF CIF to the caller's field
+	JMP I	UNIT0		/ we're all done
+
+/   Constants.	Note that in a system handler the last few words of the page
+/ are reserved by OS/8 and the handler can't touch them, so that means we
+/ don't dare use literals!
+K200,	200
+KM203,	-203
+KCXF,	CDF CIF 0
+K7600,	7600
+K7770,	7770
+K7,	7
+$

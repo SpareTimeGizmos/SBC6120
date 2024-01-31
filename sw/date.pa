@@ -1,0 +1,272 @@
+/ Set OS/8 Date from IOB6120 DS1302 Clock/Calender Chip
+
+/   This program will attempt to call the SBC6120 ROM monitor to obtain the
+/ current date from the DS1302 clock/calendar chip.  If it's successful at
+/ doing that, it will set the current OS/8 date to match.  
+/
+/   Unfortunately OS/8 is not Y2K compliant (not even close!) and so it
+/ would be impossible to set the date correctly.  Instead we always set 
+/ the date to be 28 years in the past - e.g. if today is Monday June 30,
+/ 2003 the OS/8 date will be set to Monday, June 30 1975.  The 28 year
+/ offset is used because a) it puts us squarely in the middle of the
+/ valid date range for OS/8 but more importantly, b) it guarantees that the
+/ day of the week will be the same (i.e. June 30 was a Monday in 2003 and
+/ 1975!).
+/
+/						Bob Armstrong [30-Jun-2003]
+/
+/ REVISION HISTORY
+/ 30-Jun-03	RLA	New file.
+
+/ Constants and Definitions...
+
+/ Special locations within OS/8...
+OS8=7600		/ standard OS/8 entry point
+DATFLD=10		/ field for the traditional OS/8 date word
+DATLOC=7666		/ traditional OS/8 12 bit date word
+BATFLD=00		/ field of the batch status word
+BATSTS=7777		/ batch status word (contains the MSBs of the date!)
+
+/ SBC6120/BTS6120/IOB6120 definitions...
+PR0=6206		/ HD6120 panel trap (BTS6120 ROM function call)
+RTODC=14		/ read time of day clock function
+
+
+/ These constants can all be had for free!
+NL7777=CLA CMA		/ all models
+NL4000=CLA CLL CML RAR	/ all models
+
+/ Page zero values...
+
+*3
+/ Temporaries...
+T1,	0
+
+*10
+/ Index registers...
+X1,	0
+
+*20
+/ Buffer for the BTS6120 RTODS call...
+DATBUF=.
+YEAR,	0		/ receives the current year, including the century!
+MONTH,	0		/ receives the current month, 1..12
+MDAY,	0		/ receives the current day of the month, 1..31
+HOUR,	0		/ receives the current hour, 0..23 (unused)
+MINUTE,	0		/ receives the current minute, 0..59
+SECOND.	0		/ receives the current second,0..59
+
+
+/ Main Program....
+*200
+
+START,	NOP			/ ignore CCL entry (do we have one???)
+	PR0			/ read the DS1302 clock/calendar
+	 RTODC			/  function code
+	 CDF	0		/  field of the date buffer
+	 DATBUF			/  address of the date buffer
+	SZL CLA			/ were we successful?
+	 JMP	 NODATE		/ no - no IOB6120 or no DS1302
+
+/ We are successful - set the OS/8 date and type it out...
+	JMS	I (STDATE	/ set the OS/8 date word(s)
+	JMS	I (TYDATE	/ and type it out
+	JMP	EXIT		/ all done!
+
+/ Here if there is no IOB6120 or no DS1302 installed...
+NODATE,	JMS	I [TASCIZ	/ say
+	 NDTMSG			/  "?NO CLOCK"
+	JMS	I [TCRLF	/ finish the line
+EXIT,	CDF CIF 0		/ and return control to the KBM
+	JMP	I (OS8		/ ...
+
+        .SBTTL  Store Current Date
+
+/   This routine will take the date stored in DAY, MONTH and YEAR and
+/ store it in OS/8.  Note that the original OS/8 year values were relative
+/ to 1970, however ours are now relative to 1998.  This accounts for the
+/ 28 year offset we discussed earlier!
+
+STDATE, 0
+	TAD	YEAR		/ get the year
+	DECIMAL
+	TAD	(-1998		/ offset the year
+	DCA	YEAR		/ and save it again
+	OCTAL
+
+/ Set the high order year bits stored in the OS/8 BATCH status word...
+	TAD	YEAR		/ get the offset year
+	RTL;RTL			/ position it correctly
+	AND	(0600		/ and trim it to just the two high order bits
+	DCA	T1		/ save that for a while
+	CDF	BATFLD		/ point the the batch control word
+	TAD	I (BATSTS	/ and then get it
+	AND	(7177)		/ remove the old date
+	TAD	T1		/ and insert the new one
+	DCA	I (BATSTS	/ ...
+	CDF	0		/ back to our field
+
+/ Now build the 12 bit OS/8 date word and store it..
+	TAD	YEAR		/ get the year again
+	AND	(7		/ and this time use just the low bits
+	DCA	T1		/ ...
+	TAD	MONTH		/ then get the month
+	BSW; CLL RTL		/ left justify it
+	TAD	T1		/ and put it with the year
+	DCA	T1		/ ...
+	TAD	MDAY		/ finally add the day of the month
+	CLL RAL;RTL		/ shift it between the month and year
+	TAD	T1		/ and form the complete date
+	CDF	DATFLD		/ point to the date field
+	DCA	I (DATLOC	/ and store this word
+	CDF	0		/ back to this field
+	JMP	I STDATE	/ return
+
+/ Type out the current date...
+
+TYDATE,	0
+	TAD	MONTH		/ get the month	
+	TAD	(MONTAB-1	/ index into the table of month names
+	DCA	.+2		/ and save that for TSIXS
+	JMS	I [TASCIZ	/ type out the month name
+	 0			/  (gets overwritten above!)
+	TAD	MDAY		/ get the day of the month
+	JMS	I [TDECW	/ and type that out too
+	TAD	(",		/ then type a comma
+	JMS	I [TCHAR	/ ...
+	TAD	("		/ and a space
+	JMS	I [TCHAR	/ ...
+	TAD	YEAR		/ and finally type the year
+	DECIMAL
+	TAD	(1970		/ (the virtual year, that is!)
+	OCTAL
+	JMS	I [TDECW	/ ...
+	JMS	I [TCRLF	/ type a CRLF 
+	JMP	I TYDATE	/ and we're done!
+
+	PAGE
+
+/ Decimal output routine...
+
+/   This routine will output a 12 bit word in the ac as an unsigned decimal
+/ number in the range 0 to 4095.  No leading zeros are ever printed...
+/
+/CALL:
+/	TAD	(VALUE
+/	JMS	TDECW
+/	<only return>
+TDECW,	0
+	DCA	DECVAL		/ save the value for a while
+	TAD	(TENTAB		/ point to the power of ten table
+	DCA	TENPTR		/ and initialize the pointer
+	DCA	PNTFLG		/ zeros are not significant yet
+
+/ start the division by the largest power of 10.
+TDECW1, DCA	DECDIG		/ clear the current digit
+	TAD I	TENPTR		/ get the current power of 10
+	IAC			/ is it -1 ?
+	SZA CLA			/ ???
+	 JMP	 TDECW2		/ no - proceed
+	NL4000			/ yes - force significance to start
+	DCA	PNTFLG		/ ...
+
+/ divide the value by the current power of 10.
+TDECW2, TAD I	TENPTR		/ load the next power of 10
+	SNA			/ have we found the last one ?
+	 JMP	I TDECW		/ yes - return
+	CLL			/ prepare for the test
+	TAD	DECVAL		/ compare it to the value to be printed
+	SNL			/ is it too big ?
+	 JMP	 TDECW3		/ yes - go print what we have so far
+	DCA	DECVAL		/ no - save thsi for next time
+	ISZ	DECDIG		/ count another iteration in the division
+	JMP	TDECW2		/ and keep dividing
+
+/ print the quotient of the division (if significant).
+TDECW3, CLA			/ AC isn't cleared when we get here
+	TAD	DECDIG		/ get the digit we just computed
+	TAD	PNTFLG		/ add the significance flag
+	SNA			/ is this digit significant ?
+	 JMP	 TDECW4		/ no - on to the next power of 10
+	TAD	("0		/ yes - convert it to ASCII
+	JMS	TCHAR		/ and print it
+	NL4000			/ load the AC with 4000
+	DCA	PNTFLG		/ and set the significance flag from now on
+
+/ on to the next power of 10.
+TDECW4, ISZ	TENPTR		/ advance the pointer
+	JMP	TDECW1		/ and keep printing
+
+/ local storage for TDECW...
+DECVAL, 0			/ the value to be printed
+TENPTR, 0			/ the current power of 10 pointer
+PNTFLG, 0			/ 4000 if zeros are significant
+DECDIG, 0			/ the current decimal digit
+	DECIMAL
+TENTAB, -1000;-100;-10;-1;0	/ power of ten table...
+	OCTAL
+
+/ Terminal output primitives...
+
+
+/ This routine types a carriage return, line feed, on the console...
+TCRLF,	0
+	CLA			/ just IN CASE
+	TAD	(215		/ a carriage return
+	JMS	TCHAR		/ ...
+	TAD	(212		/ and then a line feed
+	JMS	TCHAR		/ ...
+	JMP	I TCRLF		/ ...
+
+
+/   This routine types an asciz string stored one eight bit character
+/ per word and terminated by a null byte.
+/
+/CALL:
+/	JMS	TASCIZ		/ uses X1 and COUNT
+/	 <address of STRING>	/ ...
+TASCIZ, 0
+	NL7777			/ correct for pre-incrementing index registers
+	TAD	I TASCIZ	/ get the address of the string buffer
+	DCA	X1		/ and save that
+	ISZ	TASCIZ		/ be sure to skip over it when we return
+TASCI1, TAD	I X1		/ get the next character
+	AND	(377		/ just in case!
+	SNA			/ have we reached the end?
+	 JMP	 I TASCIZ	/ yes - return now
+	JMS	TCHAR		/ no - type this character
+	JMP	TASCI1		/ keep typing
+
+
+/ This routine types a single character, from the AC, on the console...
+/
+/ CALL:
+/	TAD	(CHAR
+/	JMS	TCHAR
+/	<always return here>
+TCHAR,	0
+	TLS			/ output the character
+	TSF			/ and wait for it to finish
+	 JMP	 .-1		/ ...
+	CLA			/ always return with the AC cleared
+	JMP	I TCHAR		/ ...
+
+/ Messages...
+NDTMSG,	"?; "N; "o; " ; "C; "l; "o; "c; "k
+
+MONTAB,	JANMSG; FEBMSG; MARMSG; APRMSG; MAYMSG; JUNMSG
+	JULMSG; AUGMSG; SEPMSG; OCTMSG; NOVMSG: DECMSG
+JANMSG,	"J; "a; "n; "u; "a; "r; "y; " 
+FEBMSG,	"F; "e; "b; "r; "u; "a; "r; "y; " 
+MARMSG,	"M; "a; "r; "c; "h; " 
+APRMSG,	"A; "p; "r; "i; "l; " 
+MAYMSG,	"M; "a; "y; " 
+JUNMSG,	"J; "u; "n; "e; " 
+JULMSG,	"J; "u; "l; "y; " 
+AUGMSG,	"A; "u; "g; "u; "s; "t; " 
+SEPMSG,	"S; "e; "p; "t; "e; "m; "b; "e; "r; " 
+OCTMSG,	"O; "c; "t; "o; "b; "e; "r; " 
+NOVMSG,	"N; "o; "v; "e; "m; "b; "e; "r; " 
+DECMSG,	"D; "e; "c; "e; "m; "b; "e; "r; " 
+
+$$$$
