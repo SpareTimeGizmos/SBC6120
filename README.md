@@ -1,4 +1,4 @@
-# Spare Time Gizmos SBC6120 PDP-8 Single Board Computer
+# SBC6120 PDP-8 Single Board Computer
 
 The Spare Time Gizmos SBC6120 is a more or less conventional single board computer with the typical complement of EPROM, RAM, a RS232 serial port, and an IDE disk interface.  What makes it unique is that the CPU is the Harris HD-6120 PDP-8 on a chip. The 6120 is the second generation of single chip PDP-8 compatible microprocessors and was used in Digital's DECmate-I, II, III and III+ "personal" computers.
 
@@ -56,4 +56,3 @@ bullet
 
 The FP6120 adds a traditional PDP-8/E style Programmer’s Console (aka a lights and switches front panel) to any SBC6120 system. Twenty seven LEDS provide continuous display of the current memory address as well as memory or register contents, and a additional LED displays the running or halted state of the processor. Twelve data switches allow for direct entry of binary data and an additional eight switches provide program control functions including BOOT, ADDRESS LOAD, EXTENDED ADDRESS LOAD, CLEAR, CONTINUE, EXAMINE, DEPOSIT and HALT.
 
-The FP6120 is designed as a peripheral device which plugs into the standard SBC6120 expansion bus, however because of its physical size the SBC6120 actually mounts directly to the back of the front panel. Additional space is available on the back of the FP6120 to mount another I/O board as well as either a CompactFlash memory card or a standard 2½” laptop hard disk drive. Finally, the FP6120 contains a switching power supply which can supply all necessary power for the SBC6120, one or two daughter boards, and the FP6120 itself from a single unregulated source of +9 to +12VDC.

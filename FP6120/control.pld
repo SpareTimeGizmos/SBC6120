@@ -1,0 +1,85 @@
+/* control.pld - FP6120 Control Logic PLD				*/
+/*									*/
+/*   Copyright (C) 2003 by Robert Armstrong, Milpitas, California.	*/
+/*									*/
+/*  This program is free software; you can redistribute it and/or	*/
+/* modify it under the terms of the GNU General Public License as	*/
+/* published by the Free Software Foundation; either version 2 of the	*/
+/* License, or (at your option) any later version.			*/
+/*									*/
+/*  This program is distributed in the hope that it will be useful, but	*/
+/* WITHOUT ANY WARRANTY; without even the implied warranty of		*/
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU	*/
+/* General Public License for more details.				*/
+/*									*/
+/*   You should have received a copy of the GNU General Public License	*/
+/* along with this program; if not, write to the Free Software		*/
+/* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111 USA.	*/
+NAME		FPCONTROL;
+PARTNO		FPCONTROL;
+REVISION	B;
+DATE		07/17/03;
+DESIGNER	Robert Armstrong;
+COMPANY		Spare Time Gizmos;
+ASSEMBLY	FP6120;
+LOCATION	U7;
+DEVICE		G22V10;
+                                                    
+/* INPUTS...								*/
+Pin 1  = PANEL_IOT;		/* TRUE when a 643x IOT is decoded	*/
+Pin 2  = !MD_DISP;		/* TRUE when the rot sw is set to MD	*/
+Pin 3  = !PANEL_LOCK;		/* TRUE to lock the control switches	*/
+Pin [4..6] = [MA11..MA9];	/* I/O function code			*/
+Pin 7  = !WRITE;		/* HD6120 WRITE strobe			*/
+Pin 8  = !READ;			/*    "   READ strobe			*/
+Pin 9  = !LXMAR;		/*    "   memory address strobe		*/
+Pin 10 = !WR_SR;		/*    "   write switch register strobe	*/
+Pin 11 = HALT_SW_REQ;		/* RUN -> HALT switch transition	*/
+Pin 13 = CLK_30HZ;		/* 30Hz clock				*/
+Pin 20 = !CONSOLE_BREAK_REQ;	/* original SBC6120 SLU framing error	*/
+
+/* OUTPUTS...								*/
+Pin 23 = !RD_FN_SW;		/* read function switch register	*/
+Pin 22 = !CLK_DATA_DISP;	/* clock the data display register	*/
+Pin 21 = CLK_ADDR_DISP;		/*   "    "  address  "      "		*/
+/* Pin 19 unused */
+Pin 16 = C0;			/* IM6120 device control (C0)		*/
+Pin 15 = C1;			/*    "      "      "     C1		*/
+Pin 18 = SKIP;			/* HD6120 SKIP input			*/
+Pin 17 = CPREQ;			/*    "   CPREQ input			*/
+Pin 14 = !CLR_PANEL_REQ;	/* clear HALT SW REQ and 30HZ REQ F-Fs	*/
+
+$include IOTS.INC
+
+/* The RFNS IOT reads the function (not data!) switches... */
+RD_FN_SW = READ & RFNS;
+
+/*   The CCPR instruction clears both the HALT_SW_REQ and CLK_30HZ flip	*/
+/* flops...								*/
+CLR_PANEL_REQ = WRITE & CCPR;
+
+/*   SKIP can be asserted by the SHSW (skip on HALT SW REQ) or the SCPT	*/
+/* (skip on CP timer) IOTs IF the associated flip-flip is set.  SKIP is	*/
+/* also asserted by the SPLK instruction when the PANEL_LOCK input is	*/
+/* true.  Note that for the HD6120 SKIP should be asserted only during	*/
+/* the WRITE phase of the IOT execution.				*/
+SKIP = WRITE & ((SHSW & HALT_SW_REQ) # (SCPT & CLK_30HZ) # (SPLK & PANEL_LOCK));
+
+
+CPREQ = ((LXMAR & READ) & ((HALT_SW_REQ & !PANEL_LOCK) # (CLK_30HZ & !MD_DISP))) # CONSOLE_BREAK_REQ;
+
+/* TODO NYI TBA!  The AC should also be cleared by CCPR, but for the
+   moment that's not done to eliminate it as a possible cause of problems.
+   Also, C0/C1 should be asserted only while WRITE is active, however
+   that's not an input to this PLD!  That'll be fixed in the next revision.
+*/
+C0 = WRITE & (CCPR # RFNS);
+C1 = WRITE & (RFNS);
+
+/*   The address display is always clocked by any read or write oper-	*/
+/* ation to main memory, regardless of the rotary switch setting.  The	*/
+/* data display is clocked by any main memory read or write IF the rot-	*/
+/* ary switch is in the MD position.  Otherwise the data display is	*/
+/* clocked by the WR SR L (IOT 6246, WSR) only.				*/
+CLK_ADDR_DISP = LXMAR & (READ # WRITE);
+CLK_DATA_DISP = (MD_DISP & LXMAR & (READ # WRITE)) # (!MD_DISP & WR_SR);

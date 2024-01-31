@@ -1,0 +1,128 @@
+/* iot1.pld - SBC6120 Model 2 I/O Decode GAL #1				*/
+/*									*/
+/*   Copyright (C) 2001 by Robert Armstrong, Milpitas, California.	*/
+/*									*/
+/*  This program is free software; you can redistribute it and/or	*/
+/* modify it under the terms of the GNU General Public License as	*/
+/* published by the Free Software Foundation; either version 2 of the	*/
+/* License, or (at your option) any later version.			*/
+/*									*/
+/*  This program is distributed in the hope that it will be useful, but	*/
+/* WITHOUT ANY WARRANTY; without even the implied warranty of		*/
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU	*/
+/* General Public License for more details.				*/
+/*									*/
+/*   You should have received a copy of the GNU General Public License	*/
+/* along with this program; if not, write to the Free Software		*/
+/* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111 USA.	*/
+NAME		IOT1;
+PARTNO		IOT1;
+REVISION	C;
+DATE		6/18/03;
+DESIGNER	Robert Armstrong, mods by Jim Kearney;
+COMPANY	Spare Time Gizmos;
+ASSEMBLY	SBC6120;
+LOCATION	U12;
+DEVICE	 	g22v10;
+
+/* INPUTS...								*/
+Pin 1  = !LXDAR;	/* HD6120 LXDAR (load device address)		*/
+Pin 2  = !READ;		/*    "   READ strobe				*/
+Pin 3  = !WRITE;	/*    "   WRITE strobe				*/
+Pin [4..11,13] = [MA11..MA3];	/* Latched memory address bits		*/
+
+/* OUTPUTS...								*/
+Pin 19 = C0;		/* TRUE on any IOT to clear the AC 		*/
+Pin 18 = C1;		/* TRUE to make any IOT an INPUT operation	*/
+Pin 21 = !LOAD_POST;	/* load the TIL311 POST code display		*/
+Pin 23 = !PPI_WR;	/* write the PPI register selected by MA10-11	*/
+Pin 22 = !PPI_RD;	/* read   "   "     "         "    "    "  "	*/
+Pin 16 = LOAD_MEM_MAP;	/* load the memory map register from MA10-11	*/
+Pin 17 = BYTE_READ;	/* force DX[0:3] low				*/
+Pin 15 = GROUP_1_IOT;	/* signals IOT GAL #2 which IOT is in progress	*/
+Pin 14 = GROUP_2_IOT;	/*   "      "   "   "   "    "   "  "     "	*/
+Pin 20 = SLU_SEC_SEL;	/* console SLU secondary address mode		*/
+
+/* IOT DECODING... */
+/*   Note that the device codes used by the SBC6120 serial line unit	*/
+/* (aka SLU) depend on the state of the SLU_SEC_SEL flag.  Normally	*/
+/* SLU_SEC_SEL is cleared and the SLU responds to device codes 03/04,	*/
+/* which are standard for a PDP-8 console.  However, if the SLU_SEC_SEL	*/
+/* flag is set then the SLU responds to device codes 36/37 - this frees	*/
+/* the standard console device codes to be used somewhere else in the	*/
+/* system (presumably by a card such as the IOB that implements another	*/
+/* consbole terminal!).							*/
+IOT_SLU_IN = (LXDAR &
+  ((!SLU_SEC_SEL & !MA3 & !MA4 & !MA5 & !MA6 &  MA7 &  MA8) # 	/* 603x */
+   ( SLU_SEC_SEL & !MA3 &  MA4 &  MA5 &  MA6 &  MA7 & !MA8))); 	/* 636x */
+IOT_SLU_OUT = (LXDAR &
+  ((!SLU_SEC_SEL & !MA3 & !MA4 & !MA5 &  MA6 & !MA7 & !MA8) # 	/* 604x */
+   ( SLU_SEC_SEL & !MA3 &  MA4 &  MA5 &  MA6 &  MA7 &  MA8))); 	/* 637x */
+IOT_640X = (LXDAR &  MA3 & !MA4 & !MA5 & !MA6 & !MA7 & !MA8);
+IOT_641X = (LXDAR &  MA3 & !MA4 & !MA5 & !MA6 & !MA7 &  MA8);
+IOT_644X = (LXDAR &  MA3 & !MA4 & !MA5 &  MA6 & !MA7 & !MA8);
+IOT_647X = (LXDAR &  MA3 & !MA4 & !MA5 &  MA6 &  MA7 &  MA8);
+
+$include D:\PDP8\SBC6120\MODEL2\PLD\IOTS.INC
+
+/* set/reset IOTs for SLU address.					  */
+/* latch the port select.  A complication here is that the FF is clocked  */
+/* on the rising edge of LXDAR_L, i.e. its end, so we need to avoid using */
+/* LXDAR or WRITE in our input term					  */
+PRISLU = (MA3 & !MA4 & !MA5 & !MA6 & !MA7 &  MA8 & !MA9 &  MA10 & !MA11);
+SECSLU = (MA3 & !MA4 & !MA5 & !MA6 & !MA7 &  MA8 & !MA9 &  MA10 &  MA11);
+SLU_SEC_SEL.AR = LXDAR & WRITE & PRISLU;
+SLU_SEC_SEL.SP = 'b'0;
+SLU_SEC_SEL.D = (SLU_SEC_SEL # SECSLU);
+
+/*   The IOT GAL #2 doesn't have enough inputs to decode the full nine	*/
+/* bit device code (MA3 to MA11), so IOT GAL #1 tells #2 what to do via	*/
+/* two control signals, GROUP 1 IOT H and GROUP 2 IOT H.  These signals	*/
+/* are outputs of IOT GAL #1 and inputs to IOT GAL #2, and are defined	*/
+/* as shown:								*/
+/*									*/
+/*	G1	G2	IOT
+/*	-----	-----	------------------				*/
+/*	FALSE	FALSE	idle      (no IOT in progress)			*/
+/*	TRUE	FALSE	603x/640x (console keyboard)			*/
+/*	FALSE	TRUE	604x/641x (console printer)			*/
+/*	TRUE	TRUE	641x      (system)				*/
+GROUP_1_IOT = IOT_SLU_IN # IOT_641X;
+GROUP_2_IOT = IOT_SLU_OUT # IOT_641X;
+
+
+/*   IOTs 647n, where 0 <= n <= 3, assert PPI_RD to read a PPI register	*/
+/* into the AC, and IOTs 647n, 4 <= n <= 7, assert PPI_WR to write a	*/
+/* PPI register from the AC.  In both cases the specific PPI register	*/
+/* (it has four) is selected by MA10 and MA11.				*/
+PPI_RD = IOT_647X & !MA9 & READ;
+PPI_WR = IOT_647X &  MA9 & WRITE;
+
+
+/*  The SBC6120 contains a TIL311 single digit hexadecimal display with	*/
+/* an integrated data latch.  The three least significant data inputs	*/
+/* to the display come from MA9..MA11, and the most significant bit is	*/
+/* hard wired low (thus turning our expensive hexadecimal display into	*/
+/* a simple octal one :-)  The display latch is clocked by the POST	*/
+/* IOT, 644x.								*/
+LOAD_POST = IOT_644X & WRITE;
+
+
+/*   The memory map is a two bit register which loads MA10 and MA11	*/
+/* when clocked by a 640x IOT.  In this case MA9 is also decoded, so	*/
+/* that only the IOTs 6400 thru 6403 can change the memory map.  IOTs	*/
+/* 6404 thru 6407 are currently unimplemented.				*/
+LOAD_MEM_MAP = IOT_640X & !MA9 & WRITE;
+
+
+/*   This GAL is repsonsible for driving the C0, C1 and BYTE READ L	*/
+/* signals for ALL IOTs, even those that are otherwise handled by IOT	*/
+/* GAL #2.  Remember that asserting C0 causes the AC to be cleared (for	*/
+/* either a WRITE or a READ operation), and asserting C1 causes a READ 	*/
+/* (i.e. device -> AC) transfer to occur.  Asserting BYTE READ L drives	*/
+/* DX[0:3] low for READ operations from 8 bit devices.  Note that the	*/
+/* 6120 always samples C0/C1 during the WRITE part of the IOT cycle,	*/
+/* regardless of the actual direction of data transfer!			*/
+C0 = WRITE & (KCC # KRB # IOT_647X # LDAR # (LXDAR & PRISLU));
+C1 = WRITE & (KRS # KRB # (IOT_647X & !MA9));
+BYTE_READ = READ & (KRS # KRB # (IOT_647X & !MA9));

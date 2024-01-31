@@ -1,0 +1,111 @@
+/* iot2.pld - SBC6120 Model 2 I/O Decode GAL #2				*/
+/*									*/
+/*   Copyright (C) 2001 by Robert Armstrong, Milpitas, California.	*/
+/*									*/
+/*  This program is free software; you can redistribute it and/or	*/
+/* modify it under the terms of the GNU General Public License as	*/
+/* published by the Free Software Foundation; either version 2 of the	*/
+/* License, or (at your option) any later version.			*/
+/*									*/
+/*  This program is distributed in the hope that it will be useful, but	*/
+/* WITHOUT ANY WARRANTY; without even the implied warranty of		*/
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU	*/
+/* General Public License for more details.				*/
+/*									*/
+/*   You should have received a copy of the GNU General Public License	*/
+/* along with this program; if not, write to the Free Software		*/
+/* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111 USA.	*/
+NAME		IOT2;
+PARTNO		IOT2;
+REVISION	B;
+DATE		06/05/01;
+DESIGNER	Robert Armstrong;
+COMPANY		Spare Time Gizmos;
+ASSEMBLY	SBC6120;
+LOCATION	U11;
+DEVICE		G22V10;
+                                                    
+/* INPUTS...								*/
+Pin 1  = GROUP_2_IOT;		/* IOT in progress (from IOT GAL #1) 	*/
+Pin 2  = GROUP_1_IOT;		/*  "   "    "       "    "   "   "	*/
+Pin [3..5] = [MA9..MA11];	/* IOT function code			*/
+Pin 6  = !WRITE;		/* HD6120 WRITE strobe			*/
+Pin 7  = !READ;			/*    "   READ strobe			*/
+Pin 8  = !IOCLR;		/*    "   I/O CLEAR			*/
+Pin 10 = KEYBOARD_FLAG;		/* console keyboard flag		*/
+Pin 11 = PRINTER_FLAG;		/* console printer flag			*/
+Pin 13 = !DASP;			/* IDE drive activity			*/
+Pin 9  = !BACKUP_BATTERY_LOW;	/* RAM disk backup battery low		*/
+
+/* OUTPUTS...								*/
+Pin 22 = LOAD_DAR;		/* clock the disk address register	*/
+Pin 14 = !READ_KEYBOARD_BUF;	/* enable the keyboard data buffers	*/
+Pin 15 = !LOAD_PRINTER_BUF;	/* clock the printer transmit latches	*/
+Pin 16 = !CLR_KEYBOARD_FLAG;	/* clear the console keyboard flag	*/
+Pin 21 = !CLR_PRINTER_FLAG;	/* clear the console printer flag	*/
+Pin 23 = IOCLR_OUT;		/* an inverted version of IOCLR L	*/
+Pin 18 = SKIP;			/* cause an IOT to skip			*/
+Pin 19 = INTREQ;		/* request HD6120 interrupt		*/
+/* Pin 20 unused */
+/* Pin 17 unused */
+
+/* IOT DECODING... 							*/
+/*   The IOT GAL #2 doesn't have enough inputs to decode the full nine	*/
+/* bit device code (MA3 to MA11), so IOT GAL #1 tells #2 what to do via	*/
+/* two control signals, GROUP 1 IOT H and GROUP 2 IOT H.  These signals	*/
+/* are outputs of IOT GAL #1 and inputs to IOT GAL #2, and are defined	*/
+/* as shown:								*/
+/*									*/
+/*	G1	G2	IOT
+/*	-----	-----	------------------				*/
+/*	FALSE	FALSE	idle (no IOT in progress)			*/
+/*	TRUE	FALSE	603x (console keyboard)				*/
+/*	FALSE	TRUE	604x (console printer)				*/
+/*	TRUE	TRUE	641x (system)					*/
+IOT_SLU_IN  = ( GROUP_1_IOT & !GROUP_2_IOT);
+IOT_SLU_OUT = (!GROUP_1_IOT &  GROUP_2_IOT);
+IOT_641X    = ( GROUP_1_IOT &  GROUP_2_IOT);
+$include D:\PDP8\SBC6120\MODEL2\PLD\IOTS.INC
+
+
+/*   IOCLR_OUT is simply an inverted version of IOCLR. It seems a waste	*/
+/* to use a whole PLD just for an inverter, but I didn't have an extra	*/
+/* inverter in the design and this PLD had a free output!		*/
+IOCLR_OUT = IOCLR;
+
+
+/* This table pretty much summarizes the console logic:			*/
+/*									*/
+/*	Signal			IOTs					*/
+/*	-----------------	--------------				*/
+/*	CLR_PRINTER_FLAG	CAF, TCF, TLS				*/
+/*	CLR_KEYBOARD_FLAG	KCC, KRB				*/
+/*	READ_KEYBOARD_BUF	KRS, KRB				*/
+/*	LOAD_PRINTER_BUF	TPL, TLS				*/
+/*									*/
+/*   The only thing remotely tricky is that CAF clears the printer flag	*/
+/* but it doesn't clear the keyboard flag.  This is the way a real -8	*/
+/* works.  Remember that we don't have to deal with asserting C0 or C1 	*/
+/* here, since IOT GAL #1 takes care of them.				*/
+CLR_PRINTER_FLAG  = IOCLR # (WRITE & (TCF # TLS));
+CLR_KEYBOARD_FLAG = WRITE & (KCC # KRB);
+READ_KEYBOARD_BUF =  READ & (KRS # KRB);
+LOAD_PRINTER_BUF  = WRITE & (TPL # TLS);
+
+
+/*   This GAL handles all the skip and interrupt logic for the entire	*/
+/* SBC6120, including the console terminal.  Right now there's only one	*/
+/* other device besides the console that can cause a skip or interrupt,	*/
+/* and that's the IDE disk.  Note that the HD6120 samples the SKIP line	*/
+/* during the WRITE phase of any IOT cycle, and we have to be careful	*/
+/* to assert that signal only then.  INTREQ can, of course, be asserted	*/
+/* at any time...							*/
+SKIP = WRITE & (
+		  (KSF & KEYBOARD_FLAG) # (TSF & PRINTER_FLAG)
+		# (SDASP & DASP) # (SBBLO & BACKUP_BATTERY_LOW)
+	       );
+INTREQ = KEYBOARD_FLAG # PRINTER_FLAG # DASP;
+
+
+/* The LDAR IOT loads the AC into the RAM disk address register... */
+LOAD_DAR = WRITE & LDAR;

@@ -1,0 +1,136 @@
+/* memory.pld - SBC6120 Model 2 Memory Decode GAL			*/
+/*									*/
+/*   Copyright (C) 2001 by Robert Armstrong, Milpitas, California.	*/
+/*									*/
+/*  This program is free software; you can redistribute it and/or	*/
+/* modify it under the terms of the GNU General Public License as	*/
+/* published by the Free Software Foundation; either version 2 of the	*/
+/* License, or (at your option) any later version.			*/
+/*									*/
+/*  This program is distributed in the hope that it will be useful, but	*/
+/* WITHOUT ANY WARRANTY; without even the implied warranty of		*/
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU	*/
+/* General Public License for more details.				*/
+/*									*/
+/*   You should have received a copy of the GNU General Public License	*/
+/* along with this program; if not, write to the Free Software		*/
+/* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111 USA.	*/
+
+NAME		MEMORY;
+DESIGNER	Robert Armstrong;
+COMPANY		Spare Time Gizmos;
+DATE		06/05/01;
+REVISION	3;
+ASSEMBLY	SBC6120;
+PARTNO		MEMORY;
+LOCATION	U4;
+DEVICE		G16V8A;
+
+/* INPUTS...								*/
+Pin 1  = !DATAF;	/* HM6120 DATAF output, latched by CLK_ADDR	*/
+Pin 2  = !READ;		/*    "   READ output, direct from the chip	*/
+Pin 3  = !WRITE;	/*    "   WRITE  "       "      "   "    "	*/ 
+Pin 4  = !LXMAR;	/*    "   LXMAR (load main memory address)	*/
+Pin 5  = !LXPAR;	/*    "   LXPAR (load panel memory address)	*/
+Pin 6  = !LXDAR;	/*    "   LXDAR (load device address)		*/
+Pin 7  = MEM_MAP_0;	/* memory map register bit 0 (LSB)		*/
+Pin 8  = MEM_MAP_1;	/*   "     "     "      "  1 (MSB)		*/
+/* Pin 9 unused */
+/* Pin 11 unused */
+
+/* OUTPUTS...								*/
+Pin 19 = !CLK_ADDR;	/* clock input to the 74HC373 address latches	*/
+Pin 18 = !RAM_CS;	/* chip select input for the 6208 SRAMs		*/
+/* pin 17 unused */
+Pin 16 = !RD_SR;	/* read switch register (OSR IOT) clock 	*/
+Pin 15 = !WR_SR;	/* write  "       "     (WSR IOT)   "	*/
+Pin 14 = !ROM_CE;	/* chip enable for the 2764 EPROMs		*/
+Pin 13 = !DISK_CE;	/* master chip enable to the RAM disk array	*/
+Pin 12 =  BYTE_READ;	/* force DX[0:3] to zero for RAM disk reads	*/
+
+
+/*   The SBC6120 has three memory subsystems - an 8K by 12 bit ROM made	*/
+/* up of two 27C64 EPROMS in parallel (the extra four bits are unused),	*/
+/* a 64K by 12 bit read/write memory made up of three 6208 SRAMs, and	*/
+/* 2Mb by 8 bit battery backed up RAM array (up to four 628512LP SRAMs)	*/
+/* used as a nonvolatile RAM disk.  Our problem is to fit all those in	*/
+/* to the two address spaces, panel memory and main memory, supported	*/
+/* by the HM6120.							*/
+/*									*/
+/*   We do it with the aid of two memory mapping inputs which define	*/
+/* four different memory maps:						*/
+/*									*/
+/*		Direct Addressing	Indirect Addressing		*/
+/*		-----------------	-------------------		*/
+/*	Map 0	     EPROM		       RAM			*/
+/*	Map 1	      RAM		      EPROM			*/
+/*	Map 2	      RAM		       RAM			*/
+/*	Map 3	      RAM		       DISK			*/
+/*									*/
+/*   IMPORTANT - these memory maps apply only to panel memory.  All	*/
+/* main memory accesses always go to the the 6208 RAMs regardless of	*/
+/* the mapping mode!							*/
+$define MAP0 (!MEM_MAP_0 & !MEM_MAP_1)  /* selected by IOT 6400 */
+$define MAP1 ( MEM_MAP_0 & !MEM_MAP_1)  /*    "     "   "  6401 */
+$define MAP2 (!MEM_MAP_0 &  MEM_MAP_1)  /*    "     "   "  6402 */
+$define MAP3 ( MEM_MAP_0 &  MEM_MAP_1)  /*    "     "   "  6403 */
+
+
+/*   The EPROM is enabled in mode 0 for direct reads from panel memory	*/
+/* and in mode 1 for indirect reads from panel memory.  EPROM is only	*/
+/* enabled for panel memory accesses and never for main memory, and it	*/
+/* is never enabled for a write operation in any mapping mode.  The	*/
+/* 27C64 output enable can be driven directly by the 6120 READ signal, 	*/
+/* and we have no need to worry about that here.			*/
+ROM_CE = LXPAR & READ & ((MAP0 & !DATAF) # (MAP1 & DATAF));
+
+
+/*   The 6208 RAMs are enabled for any read or write access to main	*/
+/* memory, regardless of the mapping mode.  They are also enabled for	*/
+/* any write access to panel memory _except_ indirect writes in map 3,	*/
+/* which write to the RAM disk instead.  Finally, the RAMs are enabled	*/
+/* for indirect reads from panel memory in mode 0, direct reads in mode	*/
+/* 1 or 3, and any read in mode 2.  Whew!				*/
+/*									*/
+/*   Note that the 6208s don't have any output enable pin, and their	*/
+/* output drivers are on any time their chip select is asserted, so to	*/
+/* prevent bus contention we have to gate its chip select with READ.	*/
+RAM_CS = ((READ # WRITE) & LXMAR)
+	# (WRITE & LXPAR & !(MAP3 & DATAF))
+	# (READ & LXPAR &
+            ((MAP0 &  DATAF) # (MAP1 & !DATAF) # MAP2 # (MAP3 & !DATAF)));
+
+
+/*   The RAM disk is enabled only for indirect access to panel memory	*/
+/* when map 3 is in use and since the 628512 SRAMs used in the RAM disk	*/
+/* have both output enable and write enable pins, we don't have to	*/
+/* worry about either READ or WRITE in our logic here.  The BYTE READ L	*/
+/* signal is asserted for all read from RAM disk operations - this	*/
+/* enables an external 74HC365 tristate buffer that drives DX[0:3] low	*/
+/* so that all RAM disk reads will always reliably read zeros for the	*/
+/*  upper four bits.							*/
+DISK_CE = LXPAR & MAP3 & DATAF;
+BYTE_READ = READ & LXPAR & MAP3 & DATAF;
+
+
+/*   The address latch is clocked by any one of LXMAR, LXPAR or LXDAR.	*/
+/* It looks easy, but there's one thing to beware of - the 6120 expects	*/
+/* the address to be latched on the falling edge of LX?AR, but since	*/
+/* those signals are active low, it looks like a rising edge to us in	*/
+/* these equations. The HC373 address latches latch data on the falling	*/
+/* edge of the clock, so the CLK_ADDR pin is also specified as active	*/
+/* low.									*/
+/*									*/
+/*   Just for the record, the HC374 latches, which are nearly identical	*/
+/* to the 373s, latch data on the rising edge of the clock!  You can	*/
+/* easily substitute 374s for the 373s _IF_ you change the CLK_ADDR pin	*/
+/* to be active high.							*/
+CLK_ADDR = LXMAR # LXPAR # LXDAR;
+
+
+/*   The last two signals, RD_SR and WR_SR, are asserted by the OSR and	*/
+/* WSR instructions, respectively.  These are easy, since the 6120 	*/
+/* addresses the switch register by a READ or WRITE in the absence of	*/
+/* any LXMAR, LXPAR or LXDAR...						*/
+RD_SR = READ  & !(LXMAR # LXPAR # LXDAR);
+WR_SR = WRITE & !(LXMAR # LXPAR # LXDAR);

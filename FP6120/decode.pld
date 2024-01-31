@@ -1,0 +1,47 @@
+/* decode.pld - FP6120 I/O Decode PLD					*/
+/*									*/
+/*   Copyright (C) 2003 by Robert Armstrong, Milpitas, California.	*/
+/*									*/
+/*  This program is free software; you can redistribute it and/or	*/
+/* modify it under the terms of the GNU General Public License as	*/
+/* published by the Free Software Foundation; either version 2 of the	*/
+/* License, or (at your option) any later version.			*/
+/*									*/
+/*  This program is distributed in the hope that it will be useful, but	*/
+/* WITHOUT ANY WARRANTY; without even the implied warranty of		*/
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU	*/
+/* General Public License for more details.				*/
+/*									*/
+/*   You should have received a copy of the GNU General Public License	*/
+/* along with this program; if not, write to the Free Software		*/
+/* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111 USA.	*/
+NAME		FPDECODE;
+PARTNO		FPDECODE;
+REVISION	B;
+DATE		07/17/03;
+DESIGNER	Robert Armstrong;
+COMPANY		Spare Time Gizmos;
+ASSEMBLY	FP6120;
+LOCATION	U13;
+DEVICE		G16V8;
+                                                    
+/* INPUTS...								*/
+Pin 1  = !LXDAR;		/* HD6120 LXDAR (load device address)	*/
+Pin [11,2..9] = [MA11..MA3];	/* Memory address and I/O function code	*/
+
+/* OUTPUTS...								*/
+Pin 18 = RUN_LED_H;		/* RUN LED (active high)		*/
+Pin 17 = RUN_LED_L;		/* RUN LED (active low)			*/
+Pin 13 = PANEL_IOT;		/* panel IOT signal to U7		*/
+
+PANEL_IOT = LXDAR & MA3 & !MA4 & !MA5 & !MA6 & MA7 & MA8;
+
+$include IOTS.INC
+
+/*   The RUN LED is a simple R-S (or S-R, depending on where you went	*/
+/* to school!) flip flop that's set by the RLON instruction and reset	*/
+/* by RLOF.								*/
+RUN_LED_H = RLON # (!RUN_LED_L & !RLOF);
+RUN_LED_L = RLOF # (!RUN_LED_H & !RLON);
+
+
