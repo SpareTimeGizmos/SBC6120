@@ -1,5 +1,7 @@
 # SBC6120 PDP-8 Single Board Computer
 
+![SBC6120/FP6120 on a desk](images/SBC6120.jpg)
+
 The Spare Time Gizmos SBC6120 is a more or less conventional single board computer with the typical complement of EPROM, RAM, a RS232 serial port, and an IDE disk interface.  What makes it unique is that the CPU is the Harris HD-6120 PDP-8 on a chip. The 6120 is the second generation of single chip PDP-8 compatible microprocessors and was used in Digital's DECmate-I, II, III and III+ "personal" computers.
 
 The SBC6120 can run all standard DEC paper tape software, such as FOCAL-69, with no changes. Simply use the ROM firmware on the SBC6120 to download FOCAL69.BIN from a PC connected to the console port (or use a real ASR-33 and read the real FOCAL-69 paper tape, if you’re so inclined!), start at 200(8), and you’re running.  OS/278, OS/78 and, yes - OS/8 V3D or V3S - can all be booted on the SBC6120 using either RAM disk or IDE disk as mass storage devices. Since the console interface in the SBC6120 is KL8E compatible and does not use a HD-6121, there is no particular need to use OS/278 and real OS/8 V3D runs perfectly well.
